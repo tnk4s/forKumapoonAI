@@ -6,7 +6,12 @@ from kumapoon.controller import Controller, Human, RandomPlayer, AiControll
 from kumapoon.maploader import MapLoader
 from kumapoon.player import Player
 
+import itertools
+
 import gym
+
+import threading
+
 
 class Game(arcade.Window):
     def __init__(self, controller: Controller):
@@ -62,18 +67,18 @@ class Game(arcade.Window):
 
         def _block_hit_hundler(player_sprite, block_sprite, _arbiter, _space, _data):
             if abs(_arbiter.normal[0]) > 0.8:
-                print(_arbiter.normal)
+                #print(_arbiter.normal)
                 impulse_x, impulse_y = _arbiter.total_impulse
                 normal_x, normal_y = _arbiter.normal
                 self.physics_engine.apply_impulse(
                     self.player, (impulse_x * abs(normal_x), impulse_y * abs(normal_y))
                 )
-                print('bounce_side', _arbiter.total_impulse)
+                #print('bounce_side', _arbiter.total_impulse)
 
             if _arbiter.normal[1] > 0 and _arbiter.total_impulse[1] < 0:
                 f_x, f_y = _arbiter.total_impulse
                 self.physics_engine.apply_impulse(self.player, (-f_x * 0.6, f_y * 0.6))
-                print('bounce_down', _arbiter.total_impulse)
+                #print('bounce_down', _arbiter.total_impulse)
 
         self.physics_engine.add_collision_handler(
             'player', 'wall', post_handler=_block_hit_hundler
@@ -105,6 +110,13 @@ class Game(arcade.Window):
 
         is_on_ground = self.physics_engine.is_on_ground(self.player)
         force = (0, 0)
+
+        #ジャンプできるように==========================================
+        if jump == False and self.player.jump_timer != 0:
+            self.released = True
+        else:
+            self.released = False
+        #===========================================================
 
         if left and not right:
             force = (-PLAYER.RUN_SPEED, 0)
@@ -208,7 +220,7 @@ class Game(arcade.Window):
         # self.player.draw_hit_box()
         # self.obstacle_list.draw_hit_boxes()
         self.gui_camera.use()
-        # self._draw_debug_text()
+        self._draw_debug_text()
 
 
 class KumapoonGameEnv(gym.Env, Game):
@@ -221,62 +233,105 @@ class KumapoonGameEnv(gym.Env, Game):
             "*",
             "G"
         ]
+        self.a_map = AroundMap()
         self.update_counter = 0
         self.observation_data = {}#仮　一定frameおきにこちらに保存．Envはこちらを参照すべき?
-
-        self.action_space = gym.spaces.Discrete(3)  # 左右跳
-        self.observation_space = gym.spaces.Box(
-            low=0,
-            high=len(self.FIELD_TYPES)
+        self.action_space = gym.spaces.Discrete(3)  # 左右跳　たぶん
+        self.observation_space = gym.spaces.Box(    # 確実に違う 
+            low = 0,#[0 for _ in range(4 + 30*30)],
+            high = 2,#[2 for _ in range(4 + 30*30)]
+            #shape = (1, 4 + 30*30)
         )
         self.reward_range = [-1., 100.]
-        self._reset()
+        self.last_on_g_rw = 0.0
+
+        #self.run_thread = threading.Thread(target=arcade.run)
+        #self.reset()
     
-    def _reset(self):
+    def reset(self):
+        #print("ENV_RESET")
         self._setup()
-        arcade.run()#ゲームループは別で回しながら_step()で観測する感じ?
-        return self._observe()
+        self.on_update(0.5)
+        #self.run_thread.start()
+        #arcade.run()#ゲームループは別で回しながらstep()で観測する感じ?
+
+        #仮の観測データをセット
+        self.set_observ()
+
+        return self.observe()
     
-    def _step(self, action):
+    def step(self, action):
+        self.on_update(0.5)
         # 1ステップ進める処理を記述。戻り値は observation, reward, done(ゲーム終了したか), info(追加の情報の辞書)
-        action = (False, False, False)#仮
-        l, r, s = action
+        #action = (False, False, False)#仮
+        #print("given action", action)
+        l, r, s = (False, False, False)
+        if action == 0:
+            l = True
+        elif action == 1:
+            r = True
+        else:
+            s = True
+
         self.controller.set_auto_action(l, r, s)#AIの動きを入力
+        #print("action ", self.update_counter, ":", l, r, s)
 
         #ここでstep()処理は時間をおくべき？
 
-        observation = self._observe()
-        reward = self._get_reward()
-        self.done = self._is_done()
+        observation = self.observe()
+        reward = self.get_reward()
+        self.done = self.is_done()
         return observation, reward, self.done, {}
     
-    def _render(self, mode='human', close=False):
+    def render(self, mode):
         pass
 
-    def _close(self):
+    def close(self):
         pass
 
-    def _seed(self, seed=None):
+    def seed(self, seed=None):
         pass
 
-    def _get_reward(self, pos, moved):#報酬を考える
+    def get_reward(self):#報酬を考える
         pl, px, py = self.current_level, self.player.center_x, self.player.center_y
-        rw = pl * (10.0 * (CONST.HEIGHT - py)/CONST.HEIGHT)
+        rw = (10.0 * (py/CONST.HEIGHT * py/CONST.HEIGHT) ) + ((pl * pl) * 10.0) + (3 * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER) * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER))
+        if self.physics_engine.is_on_ground(self.player):
+            if rw > self.last_on_g_rw:
+                self.last_on_g_rw = rw
+                rw = rw * 2
+            else:
+                self.last_on_g_rw = rw
+                rw = rw / 2
+        if self.player.jump_timer == PLAYER.MAX_JUMP_TIMER:
+            rw = -1.0
+        
         return rw
     
-    def _observe(self):
-        return self.observation_data
-    
-    def _is_done(self):
-        return False
+    def observe(self):
+        #とりあえず1*904の形に整形
+        observation_l = []
+        observation_l.append(self.observation_data["CurrentLv"])
+        observation_l.append(self.observation_data["onGround"])
+        observation_l.append(self.observation_data["CenterX"])
+        observation_l.append(self.observation_data["CenterY"])
+        observation_l.append(self.observation_data["JumpTimer"])
+        for v in list(itertools.chain.from_iterable(self.observation_data["Around"])):
+            observation_l.append(v)
 
-    def _get_near_map(self):#アバターの位置から上方nまでのmap情報（階層を跨ぐ）
-        pass
-        '''
-        print("print on _get_near_map() ========================================")
-        for level in self.map.levels:
-            print(level)
-        '''
+        return observation_l
+    
+    def set_observ(self):
+        self.observation_data = {}#初期化
+        self.observation_data["CurrentLv"] = self.current_level
+        self.observation_data["onGround"] = self.physics_engine.is_on_ground(self.player)
+        self.observation_data["CenterX"] = self.player.center_x
+        self.observation_data["CenterY"] = self.player.center_y
+        self.observation_data["JumpTimer"] = self.player.jump_timer
+        self.observation_data["Around"] = self.a_map.get_around(self.current_level, self.player.center_y)
+    
+    def is_done(self):
+        #ゴールに接触したかを返したい
+        return False
 
     def update_player(self):#特定のフレーム毎にobservationを保存する処理を追加．これで同期が取れる？
         #キーが押されなくても強制発動
@@ -284,22 +339,157 @@ class KumapoonGameEnv(gym.Env, Game):
             self.player, current=self.key_state, key=arcade.key.SPACE, pressed=True
         )
         super().update_player()
-        self.update_counter += 1 #アプデ=フレームを数える
 
-        if self.update_counter % 4 == 0:#4フレーム毎に保存（仮）
-            self.observation_data = {}#初期化
-            self.observation_data["CurrentLv"] = self.current_level
-            self.observation_data["onGround"] = self.physics_engine.is_on_ground(self.player)#着地しているか
-            self.observation_data["CenterX"] = self.player.center_x
-            self.observation_data["CenterY"] = self.player.center_y
+        #self.update_counter += 1 #アプデ=フレームを数える
+        #if self.update_counter % 4 == 0:#4フレーム毎に保存（仮）
+        self.set_observ()
 
-            #アバターの位置から上方nまでのmap情報も追加したい(保留)
-            self._get_near_map()
+        #print("==observation_data==")
+        #print(self.observation_data)
 
-            #print("==observation_data==")
-            #print(self.observation_data)
+
+import json
+class AroundMap:
+    def __init__(self):
+        self.path = "assets/data/map.json"
+        self.joined_map = []
+        self.FIELD_TYPES = [
+            " ",
+            "*",
+            "G"
+        ]
+        self.goal_xy = (0.0, 0.0)
+
+        with open(self.path, "r") as f:
+            map_json = json.load(f)
+        for idx, map_data in map_json.items():
+            #print("idx", idx)
+            #print("map_data", map_data)
+            for l_md in reversed(map_data):
+                self.joined_map.append(self._num_map(l_md))
+                #if "G" in l_md:
+                #    pass
+        '''
+        for l in reversed(self.joined_map):
+            print(l)
+        '''
+        
+    
+    def _num_map(self, l_md):
+        l_md_n = []
+        for s in l_md:
+            l_md_n.append(self.FIELD_TYPES.index(s))
+        
+        return l_md_n
+    
+    def get_around(self, level, y):
+        around = []
+        base_l = 30 * level
+        m_y = int(30 * (y / CONST.HEIGHT))
+
+        for i in range(30):
+            if len(self.joined_map) > (i + m_y + base_l - 2):
+                around.append(self.joined_map[i + m_y + base_l - 2])
+            else:
+                around.append([0 for _ in range(30)])
+        '''
+        for l in reversed(around):
+            print(l)
+        '''
+        return around
+
+import torch
+import torch.nn as nn
+import numpy as np
+class AiDrive(Game):
+    def __init__(self):
+        super().__init__(AiControll())
+        self.FIELD_TYPES = [
+            " ",
+            "*",
+            "G"
+        ]
+        self.a_map = AroundMap()
+        self.observation_data = {}
+
+        self.my_brain = MyBrain()
+        self.my_brain.model.load_state_dict(torch.load("./dqn_models/my_agent_v0.pth"))
+
+    def _setup(self):
+        super()._setup()
+        #仮の観測データをセット
+        self.set_observ()
+    
+    def update_player(self):
+        observation = self.get_observation()
+        action = self.decide_auto_action(observation)
+        l, r, s = (False, False, False)
+        if action == 0:
+            l = True
+        elif action == 1:
+            r = True
+        else:
+            s = True
+
+        self.controller.set_auto_action(l, r, s)#AIの動きを入力
+
+        #キーが押されなくても強制発動
+        self.key_state = self.controller.update(
+            self.player, current=self.key_state, key=arcade.key.SPACE, pressed=True
+        )
+        super().update_player()
+
+        self.set_observ()
+    
+    def set_observ(self):
+        self.observation_data = {}#初期化
+        self.observation_data["CurrentLv"] = self.current_level
+        self.observation_data["onGround"] = self.physics_engine.is_on_ground(self.player)
+        self.observation_data["CenterX"] = self.player.center_x
+        self.observation_data["CenterY"] = self.player.center_y
+        self.observation_data["JumpTimer"] = self.player.jump_timer
+        self.observation_data["Around"] = self.a_map.get_around(self.current_level, self.player.center_y)
+
+    def get_observation(self):
+        #とりあえず1*904の形に整形
+        observation_l = []
+        observation_l.append(self.observation_data["CurrentLv"])
+        observation_l.append(self.observation_data["onGround"])
+        observation_l.append(self.observation_data["CenterX"])
+        observation_l.append(self.observation_data["CenterY"])
+        observation_l.append(self.observation_data["JumpTimer"])
+        for v in list(itertools.chain.from_iterable(self.observation_data["Around"])):
+            observation_l.append(v)
+
+        return observation_l
+
+    def decide_auto_action(self, observation):
+        observation = torch.FloatTensor(observation)
+        self.my_brain.eval()  # ネットワークを推論モードに切り替える
+        with torch.no_grad():
+            res = self.my_brain(observation)#.max(1)[1].view(1, 1)
+            res = np.argmax(res)
+            #print("decide_auto_action:", res)
+        return res
+
+class MyBrain(nn.Module):
+    def __init__(self, num_states = 904+1, num_actions = 3):
+        super().__init__()
+        self.num_actions = num_actions
+
+        # ニューラルネットワークを構築
+        self.model = nn.Sequential()
+        self.model.add_module('fc1', nn.Linear(num_states, 64))
+        self.model.add_module('relu1', nn.ReLU())
+        self.model.add_module('fc2', nn.Linear(64, 32))
+        self.model.add_module('relu2', nn.ReLU())
+        self.model.add_module('fc3', nn.Linear(32, num_actions))
+    
+    def forward(self, observation):
+        return self.model(observation)
 
 if __name__ == "__main__":
-    game = Game(Human())
+    #game = Game(Human())
+    game = AiDrive()
     game._setup()
     arcade.run()
