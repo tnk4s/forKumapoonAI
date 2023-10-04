@@ -55,7 +55,7 @@ class MapLoader:
             y = from_y * tile_height + CONST.HEIGHT * idx
             width = (to_x - from_x) * tile_width
             height = (to_y - from_y) * tile_height
-            print('rect', x, y, width, height, i, idx)
+            #print('rect', x, y, width, height, i, idx)
             block = Block(x, y, width, height, texturename=f'block{i}')
             level.obstacles.append(block)
 
@@ -121,7 +121,7 @@ class MapLoader:
                 if cell == '*':
                     _x, _y = self._find_end(i, j, np_map)
                     rects.append((i, j, _x, _y))
-                    print(i, j, _x, _y)
+                    #print(i, j, _x, _y)
                     for y in range(j, _y):
                         for x in range(i, _x):
                             self._rects[y, x] = 1
