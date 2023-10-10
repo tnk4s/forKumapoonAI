@@ -1,9 +1,6 @@
 # forKumapoonAI
 
-#### Kumapoonをgym.Envとして呼ぶ場合は，以下を参照してください
-```
-gym_env_test.py
-```
+#### Kumapoonをgym.Envとして呼ぶ場合は，```gym_env_test.py```を参照してください
 
 #### モデルの学習方法
 ```
@@ -18,4 +15,3 @@ poetry run python src/main.py
 
 #### 詳細
 - kumapoonをDQNに利用できるよう改造（オーバーライド）
-- ```gym_env_test.py```を追加
