@@ -261,7 +261,8 @@ class KumapoonGameEnv(gym.Env, Game):
         return self.observe()
     
     def step(self, action):
-        self.on_update(0.5)
+        for i in range(4):
+            self.on_update(0.5)
         # 1ステップ進める処理を記述。戻り値は observation, reward, done(ゲーム終了したか), info(追加の情報の辞書)
         #action = (False, False, False)#仮
         #print("given action", action)
@@ -294,7 +295,7 @@ class KumapoonGameEnv(gym.Env, Game):
 
     def get_reward(self):#報酬を考える
         pl, px, py = self.current_level, self.player.center_x, self.player.center_y
-        rw = (10.0 * (py/CONST.HEIGHT * py/CONST.HEIGHT) ) + ((pl * pl) * 10.0) + (3 * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER) * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER))
+        rw = (10.0 * (py/CONST.HEIGHT * py/CONST.HEIGHT) ) + ((pl * pl) * 10.0) + (5 * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER) * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER))
         if self.physics_engine.is_on_ground(self.player):
             if rw > self.last_on_g_rw:
                 self.last_on_g_rw = rw

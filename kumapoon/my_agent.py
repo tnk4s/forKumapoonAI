@@ -21,8 +21,8 @@ Transition = namedtuple(
 
 ENV = "KumapoonGameEnv-v0"
 GAMMA = 0.99
-MAX_STEPS =  20000
-NUM_EPISODES = 1000
+MAX_STEPS =  150
+NUM_EPISODES = 300
 
 BATCH_SIZE = 32
 CAPACITY = 10000
