@@ -1,8 +1,8 @@
 # forKumapoonAI
 
-#### 実行方法（gym.Envとしてkumapoonが読み込まれます）
+#### Kumapoonをgym.Envとして呼ぶ場合は，以下を参照してください
 ```
-python gym_env_test.py
+gym_env_test.py
 ```
 
 #### モデルの学習方法
