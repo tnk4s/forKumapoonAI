@@ -11,6 +11,7 @@ import itertools
 import gym
 
 import threading
+import random
 
 
 class Game(arcade.Window):
@@ -242,8 +243,10 @@ class KumapoonGameEnv(gym.Env, Game):
             high = 2,#[2 for _ in range(4 + 30*30)]
             #shape = (1, 4 + 30*30)
         )
-        self.reward_range = [-1., 100.]
+        self.reward_range = [-1., 500.]
         self.last_on_g_rw = 0.0
+        self.first_rw = -1.0
+        self.last_h = -1.0
 
         #self.run_thread = threading.Thread(target=arcade.run)
         #self.reset()
@@ -295,7 +298,10 @@ class KumapoonGameEnv(gym.Env, Game):
 
     def get_reward(self):#報酬を考える
         pl, px, py = self.current_level, self.player.center_x, self.player.center_y
-        rw = (10.0 * (py/CONST.HEIGHT * py/CONST.HEIGHT) ) + ((pl * pl) * 10.0) + (5 * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER) * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER))
+        now_h = py + pl * CONST.HEIGHT
+        if self.last_h == -1.0:#初期値
+            self.last_h = now_h
+        rw = (10.0 * (py/CONST.HEIGHT * py/CONST.HEIGHT) ) + ((pl * pl) * 10.0)# + (10.0 * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER) * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER))
         if self.physics_engine.is_on_ground(self.player):
             if rw > self.last_on_g_rw:
                 self.last_on_g_rw = rw
@@ -303,9 +309,15 @@ class KumapoonGameEnv(gym.Env, Game):
             else:
                 self.last_on_g_rw = rw
                 rw = rw / 2
+            # if self.last_h > (now_h + 3.0):#落下したら
+            #     rw = -1.0
+            if self.last_h < now_h:#上に登ったら
+                self.last_h = now_h
+                rw = rw * 1.5
+
+        rw += (8.0 * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER) * (self.player.jump_timer / PLAYER.MAX_JUMP_TIMER)) 
         if self.player.jump_timer == PLAYER.MAX_JUMP_TIMER:
             rw = -1.0
-        
         return rw
     
     def observe(self):
@@ -415,6 +427,7 @@ class AiDrive(Game):
 
         self.my_brain = MyBrain()
         self.my_brain.model.load_state_dict(torch.load("./dqn_models/my_agent_v0.pth"))
+        #self.my_brain.model.load_state_dict(torch.load("./dqn_models/my_agent_v0_20231030_0_GOOD.pth"))
 
     def _setup(self):
         super()._setup()
@@ -487,6 +500,15 @@ class MyBrain(nn.Module):
         self.model.add_module('fc3', nn.Linear(32, num_actions))
     
     def forward(self, observation):
+        if observation[4] == 60:
+            rand_action = [0.0, 0.0, 0.0]
+            r = random.randint(0, 1)
+            if r == 0:
+                rand_action = [1.0, 0.0, 0.0]
+            else:
+                rand_action = [0.0, 1.0, 0.0]
+            print("rand_action", rand_action)
+            return rand_action
         return self.model(observation)
 
 if __name__ == "__main__":
