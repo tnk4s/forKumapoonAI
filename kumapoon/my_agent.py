@@ -14,6 +14,9 @@ import torch.nn.functional as F
 import src # Kumapoonへのアクセス用
 
 from tqdm import tqdm
+from datetime import datetime
+
+pretrained_flag = True
 
 Transition = namedtuple(
     "Transition", ("state", "action", "next_state", "reward")
@@ -21,8 +24,8 @@ Transition = namedtuple(
 
 ENV = "KumapoonGameEnv-v0"
 GAMMA = 0.99
-MAX_STEPS =  150
-NUM_EPISODES = 300
+MAX_STEPS = 500
+NUM_EPISODES = 500
 
 BATCH_SIZE = 32
 CAPACITY = 10000
@@ -38,6 +41,8 @@ class Environment:#Kumapoonを実行する環境のクラス 元がCartPoleな�
         self.agent = MyAgent(num_states, num_actions)  # 環境内で行動するAgentを生成
 
         self.confirm_print = False
+
+        self.last_jump_timer = 0
 
         
     def run(self):
@@ -65,15 +70,19 @@ class Environment:#Kumapoonを実行する環境のクラス 元がCartPoleな�
                 #if episode_final is True:  # 最終試行ではframesに各時刻の画像を追加していく
                 #    frames.append(self.env.render(mode='rgb_array'))
 
-                action = self.agent.get_action(state, episode)  # 行動を求める
+                action = self.agent.get_action(state, episode, self.last_jump_timer)  # 行動を求める
 
                 # 行動a_tの実行により、s_{t+1}とdoneフラグを求める
                 # actionから.item()を指定して、中身を取り出す
                 observation_next, given_reward, done, _ = self.env.step(
                     action.item())  # rewardとinfoは使わないので_にする
 
+                self.last_jump_timer = observation_next[4]
+
                 if max_reward < given_reward:
                     max_reward = given_reward
+                    # if max_reward > 60.0:
+                    #     self.agent.save_cpt(max_reward)
                 # 報酬を与える。さらにepisodeの終了評価と、state_nextを設定する
                 reward = torch.FloatTensor([given_reward])
                 state_next = np.array(observation_next) # 観測をそのまま状態とする
@@ -120,9 +129,9 @@ class MyAgent:
         '''Q関数を更新する'''
         self.brain.replay()
 
-    def get_action(self, state, episode):
+    def get_action(self, state, episode, last_jump_timer):
         '''行動を決定する'''
-        action = self.brain.decide_action(state, episode)
+        action = self.brain.decide_action(state, episode, last_jump_timer)
         return action
 
     def memorize(self, state, action, state_next, reward):
@@ -131,6 +140,9 @@ class MyAgent:
     
     def save(self):
         self.brain.model_save()
+    
+    def save_cpt(self, rw):
+        self.brain.cpt_save(rw)
 
 
 class Brain:
@@ -148,10 +160,14 @@ class Brain:
         self.model.add_module('relu2', nn.ReLU())
         self.model.add_module('fc3', nn.Linear(32, num_actions))
 
-        print(self.model)  # ネットワークの形を出力
+        #print(self.model)  # ネットワークの形を出力
 
         # 最適化手法の設定
-        self.optimizer = optim.Adam(self.model.parameters(), lr=0.0001)
+        if pretrained_flag:
+            self.model.load_state_dict(torch.load("./dqn_models/my_agent_v0.pth"))
+            self.optimizer = optim.Adam(self.model.parameters(), lr=0.000000005)
+        else:
+            self.optimizer = optim.Adam(self.model.parameters(), lr=0.0001)
 
     def replay(self):
         '''Experience Replayでネットワークの結合パラメータを学習'''
@@ -228,15 +244,17 @@ class Brain:
         # 4.2 損失関数を計算する（smooth_l1_lossはHuberloss）
         # expected_state_action_valuesは
         # sizeが[minbatch]になっているので、unsqueezeで[minibatch x 1]へ
+        
         loss = F.smooth_l1_loss(state_action_values,
                                 expected_state_action_values.unsqueeze(1))
+                                
 
         # 4.3 結合パラメータを更新する
         self.optimizer.zero_grad()  # 勾配をリセット
         loss.backward()  # バックプロパゲーションを計算
         self.optimizer.step()  # 結合パラメータを更新
 
-    def decide_action(self, state, episode):
+    def decide_action(self, state, episode, last_jump_timer):
         '''現在の状態に応じて、行動を決定する'''
         # ε-greedy法で徐々に最適行動のみを採用する
         epsilon = 0.5 * (1 / (episode + 1))
@@ -248,6 +266,13 @@ class Brain:
             # ネットワークの出力の最大値のindexを取り出します = max(1)[1]
             # .view(1,1)は[torch.LongTensor of size 1]　を size 1x1 に変換します
             #print("decide_action_NN:", action)
+
+            # if last_jump_timer == 60:
+            #     r = random.randint(0, 1)
+            #     if r == 0:
+            #         action = 0
+            #     else:
+            #         action = 1
 
         else:
             # 0,1の行動をランダムに返す
@@ -261,6 +286,10 @@ class Brain:
     def model_save(self):
         savename = "my_agent_v0"
         torch.save(self.model.state_dict(), './dqn_models/' +  savename + '.pth')
+    
+    def cpt_save(self, rw):
+        savename = "my_agent_v0_rw"  + str(rw) + "_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        torch.save(self.model.state_dict(), './dqn_models/checkpoints/' +  savename + '.pth')
 
 
 class ReplayMemory:
